@@ -11,12 +11,13 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
+	"github.com/machgo/packetstats/pkg/config"
+	"github.com/machgo/packetstats/pkg/output"
 )
 
 var (
-	device      string = "\\Device\\NPF_{564DDDFB-6028-46E5-81A9-33AD76EE620C}"
-	snapshotLen int32  = 1024
-	promiscuous bool   = false
+	snapshotLen int32 = 1024
+	promiscuous bool  = false
 	err         error
 	timeout     time.Duration = 30 * time.Second
 	handle      *pcap.Handle
@@ -40,12 +41,17 @@ type Flow struct {
 // maybe better to use A and B
 
 func main() {
+	fmt.Println(config.GetInstance())
+	device := config.GetInstance().Device
+
 	// Open device
 	handle, err = pcap.OpenLive(device, snapshotLen, promiscuous, timeout)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer handle.Close()
+
+	output.Test()
 
 	counter := 0
 	flows := make(map[string]Flow)
@@ -70,6 +76,7 @@ func main() {
 			counter = 0
 			bs, _ := json.Marshal(flows)
 			fmt.Println(string(bs))
+
 		}
 	}
 }

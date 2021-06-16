@@ -1,0 +1,10 @@
+{
+    "RabbitMq": {
+        "Host": "localhost",
+        "User": "x",
+        "Password": "x",
+        "Routingkey": "x",
+        "Queue": "x"
+    },
+    "Device": "\\Device\\NPF_{564DDDFB-6028-46E5-81A9-33AD76EE620C}"
+}
