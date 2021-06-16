@@ -1,11 +1,11 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/gopacket"
@@ -23,6 +23,8 @@ var (
 	handle      *pcap.Handle
 )
 
+var lock = sync.RWMutex{}
+
 const TCP = "TCP"
 const UDP = "UDP"
 
@@ -35,6 +37,8 @@ type Flow struct {
 	PortA, PortB         int
 	PacketsAB, PacketsBA int
 	BytesAB, BytesBA     int
+	FirstPacket          time.Time
+	LastPacket           time.Time
 }
 
 // source and destination label for flows are not good, because what is source and what is destination?
@@ -56,6 +60,8 @@ func main() {
 	counter := 0
 	flows := make(map[string]Flow)
 
+	go manageFlows(flows)
+
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 	for packet := range packetSource.Packets() {
 		// printPacketInfo(packet)
@@ -66,18 +72,41 @@ func main() {
 			val.BytesBA += o.BytesBA
 			val.PacketsAB += o.PacketsBA
 			val.PacketsBA += o.PacketsAB
+			o.LastPacket = time.Now()
+			lock.Lock()
 			flows[flowKey] = val
+			lock.Unlock()
 		} else {
+			o.FirstPacket = time.Now()
+			o.LastPacket = o.FirstPacket
+			lock.Lock()
 			flows[flowKey] = o
+			lock.Unlock()
 		}
 		counter++
 
-		if counter > 100 {
-			counter = 0
-			bs, _ := json.Marshal(flows)
-			fmt.Println(string(bs))
+		// if counter > 100 {
+		// 	counter = 0
+		// 	bs, _ := json.Marshal(flows)
+		// 	fmt.Println(string(bs))
 
+		// }
+	}
+}
+
+func manageFlows(data map[string]Flow) {
+	for {
+		now := time.Now()
+		for k, v := range data {
+			if now.Before(v.FirstPacket.Add(time.Minute * 1)) {
+				fmt.Println("found old flow")
+				lock.Lock()
+				delete(data, k)
+				lock.Unlock()
+			}
 		}
+
+		time.Sleep(10000)
 	}
 }
 

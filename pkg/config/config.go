@@ -12,11 +12,9 @@ var (
 
 type Configuration struct {
 	RabbitMq struct {
-		Host       string
-		User       string
-		Password   string
+		Url        string
 		Routingkey string
-		Queue      string
+		Exchange   string
 	}
 	Device string
 }
