@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"net"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
 	"github.com/machgo/packetstats/pkg/config"
+	"github.com/machgo/packetstats/pkg/flow"
 	"github.com/machgo/packetstats/pkg/output"
 )
 
@@ -28,22 +28,6 @@ var lock = sync.RWMutex{}
 const TCP = "TCP"
 const UDP = "UDP"
 
-// do flow recording on tcp / udp base.
-// record the packets/bytes A->B and B->A
-
-type Flow struct {
-	IPA, IPB             net.IP
-	Layer4Type           string
-	PortA, PortB         int
-	PacketsAB, PacketsBA int
-	BytesAB, BytesBA     int
-	FirstPacket          time.Time
-	LastPacket           time.Time
-}
-
-// source and destination label for flows are not good, because what is source and what is destination?
-// maybe better to use A and B
-
 func main() {
 	fmt.Println(config.GetInstance())
 	device := config.GetInstance().Device
@@ -58,9 +42,12 @@ func main() {
 	output.Test()
 
 	counter := 0
-	flows := make(map[string]Flow)
+	flows := make(map[string]flow.Flow)
 
-	go manageFlows(flows)
+	publish := make(chan flow.Flow, 10)
+
+	go manageFlows(flows, publish)
+	go output.PublishMessages(publish)
 
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 	for packet := range packetSource.Packets() {
@@ -91,13 +78,14 @@ func main() {
 	}
 }
 
-func manageFlows(data map[string]Flow) {
+func manageFlows(data map[string]flow.Flow, publish chan<- flow.Flow) {
 	for {
 		now := time.Now()
 		lock.Lock()
 		for k, v := range data {
 			if now.After(v.FirstPacket.Add(time.Second * 10)) {
 				fmt.Printf("found old flow, flowmapsize: %d\n", len(data))
+				publish <- v
 				delete(data, k)
 			}
 		}
@@ -107,10 +95,10 @@ func manageFlows(data map[string]Flow) {
 	}
 }
 
-func getFlowKey(packet gopacket.Packet) (string, Flow) {
+func getFlowKey(packet gopacket.Packet) (string, flow.Flow) {
 	key := ""
 	inverse := false
-	o := Flow{}
+	o := flow.Flow{}
 
 	ipLayer := packet.Layer(layers.LayerTypeIPv4)
 	if ipLayer != nil {
