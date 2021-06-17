@@ -7,10 +7,12 @@ import (
 
 	"github.com/machgo/packetstats/pkg/config"
 	"github.com/machgo/packetstats/pkg/flow"
+	"github.com/machgo/packetstats/pkg/vpn"
 	"github.com/streadway/amqp"
 )
 
-func Test() {
+func PublishMessages(publish <-chan flow.Flow) {
+
 	url := config.GetInstance().RabbitMq.Url
 	routingkey := config.GetInstance().RabbitMq.Routingkey
 	exchange := config.GetInstance().RabbitMq.Exchange
@@ -23,23 +25,23 @@ func Test() {
 	failOnError(err, "Failed to open a channel")
 	defer ch.Close()
 
-	body := "Hello World!"
-	err = ch.Publish(
-		exchange,   // exchange
-		routingkey, // routing key
-		false,      // mandatory
-		false,      // immediate
-		amqp.Publishing{
-			ContentType: "text/plain",
-			Body:        []byte(body),
-		})
-	failOnError(err, "Failed to publish a message")
-}
-
-func PublishMessages(publish <-chan flow.Flow) {
 	for p := range publish {
+
+		vpn.FillSessionName(&p)
+
 		jsonMessage, _ := json.Marshal(p)
 		fmt.Println(string(jsonMessage))
+
+		err = ch.Publish(
+			exchange,   // exchange
+			routingkey, // routing key
+			false,      // mandatory
+			false,      // immediate
+			amqp.Publishing{
+				ContentType: "text/json",
+				Body:        jsonMessage,
+			})
+		failOnError(err, "Failed to publish a message")
 	}
 }
 

@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
-	"strings"
+	"os"
 	"sync"
 	"time"
 
@@ -13,6 +13,7 @@ import (
 	"github.com/machgo/packetstats/pkg/config"
 	"github.com/machgo/packetstats/pkg/flow"
 	"github.com/machgo/packetstats/pkg/output"
+	"github.com/machgo/packetstats/pkg/vpn"
 )
 
 var (
@@ -21,6 +22,7 @@ var (
 	err         error
 	timeout     time.Duration = 30 * time.Second
 	handle      *pcap.Handle
+	hostname    string
 )
 
 var lock = sync.RWMutex{}
@@ -29,6 +31,10 @@ const TCP = "TCP"
 const UDP = "UDP"
 
 func main() {
+
+	go vpn.GetVPNSessions()
+
+	hostname, _ = os.Hostname()
 	fmt.Println(config.GetInstance())
 	device := config.GetInstance().Device
 
@@ -38,8 +44,6 @@ func main() {
 		log.Fatal(err)
 	}
 	defer handle.Close()
-
-	output.Test()
 
 	counter := 0
 	flows := make(map[string]flow.Flow)
@@ -83,7 +87,7 @@ func manageFlows(data map[string]flow.Flow, publish chan<- flow.Flow) {
 		now := time.Now()
 		lock.Lock()
 		for k, v := range data {
-			if now.After(v.FirstPacket.Add(time.Second * 10)) {
+			if now.After(v.FirstPacket.Add(time.Second * 60)) {
 				fmt.Printf("found old flow, flowmapsize: %d\n", len(data))
 				publish <- v
 				delete(data, k)
@@ -100,20 +104,23 @@ func getFlowKey(packet gopacket.Packet) (string, flow.Flow) {
 	inverse := false
 	o := flow.Flow{}
 
+	o.Hostname = hostname
+	o.Type = "flow"
+
 	ipLayer := packet.Layer(layers.LayerTypeIPv4)
 	if ipLayer != nil {
 		ip, _ := ipLayer.(*layers.IPv4)
 		if ip.SrcIP.String() > ip.DstIP.String() {
 			inverse = true
 			key = fmt.Sprintf("%s%s", ip.DstIP, ip.SrcIP)
-			o.IPA = ip.DstIP
-			o.IPB = ip.SrcIP
+			o.IPA = ip.DstIP.String()
+			o.IPB = ip.SrcIP.String()
 			o.BytesBA = packet.Metadata().CaptureLength
 			o.PacketsBA = 1
 		} else {
 			key = fmt.Sprintf("%s%s", ip.SrcIP, ip.DstIP)
-			o.IPA = ip.SrcIP
-			o.IPB = ip.DstIP
+			o.IPA = ip.SrcIP.String()
+			o.IPB = ip.DstIP.String()
 			o.BytesAB = packet.Metadata().CaptureLength
 			o.PacketsAB = 1
 		}
@@ -149,57 +156,4 @@ func getFlowKey(packet gopacket.Packet) (string, flow.Flow) {
 		}
 	}
 	return key, o
-}
-
-func printPacketInfo(packet gopacket.Packet) {
-
-	ipLayer := packet.Layer(layers.LayerTypeIPv4)
-	if ipLayer != nil {
-		fmt.Println("IPv4 layer detected.")
-		ip, _ := ipLayer.(*layers.IPv4)
-
-		fmt.Printf("From %s to %s\n", ip.SrcIP, ip.DstIP)
-		fmt.Println("Protocol: ", ip.Protocol)
-		fmt.Println()
-	}
-
-	tcpLayer := packet.Layer(layers.LayerTypeTCP)
-	if tcpLayer != nil {
-		fmt.Println("TCP layer detected.")
-		tcp, _ := tcpLayer.(*layers.TCP)
-
-		fmt.Printf("From port %d to %d\n", tcp.SrcPort, tcp.DstPort)
-		fmt.Println("Sequence number: ", tcp.Seq)
-		fmt.Println()
-	}
-
-	udpLayer := packet.Layer(layers.LayerTypeUDP)
-	if udpLayer != nil {
-		fmt.Println("udp layer detected.")
-		udp, _ := udpLayer.(*layers.UDP)
-
-		fmt.Printf("From port %d to %d\n", udp.SrcPort, udp.DstPort)
-		fmt.Println()
-	}
-
-	dnsLayer := packet.Layer(layers.LayerTypeDNS)
-	if dnsLayer != nil {
-		fmt.Println("dns layer detected.")
-		dns, _ := dnsLayer.(*layers.DNS)
-		fmt.Println(dns.Contents)
-	}
-
-	applicationLayer := packet.ApplicationLayer()
-	if applicationLayer != nil {
-		fmt.Println("Application layer/Payload found.")
-		fmt.Printf("%s\n", applicationLayer.Payload())
-
-		if strings.Contains(string(applicationLayer.Payload()), "HTTP") {
-			fmt.Println("HTTP found!")
-		}
-	}
-
-	if err := packet.ErrorLayer(); err != nil {
-		fmt.Println("Error decoding some part of the packet:", err)
-	}
 }
