@@ -66,23 +66,20 @@ func main() {
 	for packet := range packetSource.Packets() {
 		// printPacketInfo(packet)
 		flowKey, o := getFlowKey(packet)
-
+		lock.Lock()
 		if val, exists := flows[flowKey]; exists {
 			val.BytesAB += o.BytesAB
 			val.BytesBA += o.BytesBA
 			val.PacketsAB += o.PacketsBA
 			val.PacketsBA += o.PacketsAB
-			o.LastPacket = time.Now()
-			lock.Lock()
+			val.LastPacket = time.Now()
 			flows[flowKey] = val
-			lock.Unlock()
 		} else {
 			o.FirstPacket = time.Now()
 			o.LastPacket = o.FirstPacket
-			lock.Lock()
 			flows[flowKey] = o
-			lock.Unlock()
 		}
+		lock.Unlock()
 		counter++
 
 		// if counter > 100 {
@@ -97,14 +94,14 @@ func main() {
 func manageFlows(data map[string]Flow) {
 	for {
 		now := time.Now()
+		lock.Lock()
 		for k, v := range data {
-			if now.Before(v.FirstPacket.Add(time.Minute * 1)) {
-				fmt.Println("found old flow")
-				lock.Lock()
+			if now.After(v.FirstPacket.Add(time.Second * 10)) {
+				fmt.Printf("found old flow, flowmapsize: %d\n", len(data))
 				delete(data, k)
-				lock.Unlock()
 			}
 		}
+		lock.Unlock()
 
 		time.Sleep(10000)
 	}
